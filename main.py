@@ -92,9 +92,9 @@ class FootballBotApp:
                     logger.info(f"Webhook设置完成: {self.config.telegram.webhook_url}")
             else:
                 logger.info("使用轮询模式启动机器人")
-                # 轮询模式
-                await self.bot.application.updater.start_polling()
-                logger.info("开始轮询模式")
+                # 轮询模式 - 使用新的API，但这里只是启动，不阻塞
+                # 实际的轮询将在run方法中处理
+                logger.info("机器人已准备就绪，等待轮询启动")
             
         except Exception as e:
             logger.error(f"启动应用失败: {e}")
@@ -322,18 +322,15 @@ async def main():
         # 启动完整应用
         logger.info("启动足球赛事爬虫机器人...")
         
-        app = FootballBotApp()
-        await app.initialize()
-        await app.start()
+        # 直接使用机器人的run方法，避免复杂的应用层
+        bot = FootballBot()
+        await bot.run()
         
     except KeyboardInterrupt:
         logger.info("收到中断信号，正在停止...")
     except Exception as e:
         logger.error(f"应用运行出错: {e}")
         raise
-    finally:
-        if app:
-            await app.stop()
 
 if __name__ == "__main__":
     try:
