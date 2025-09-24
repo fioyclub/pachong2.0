@@ -11,6 +11,7 @@ import signal
 import sys
 from typing import Optional
 
+from telegram import Update
 from config import get_config
 from bot import FootballBot
 from scraper import FootballScraper
@@ -77,12 +78,23 @@ class FootballBotApp:
             self.running = True
             
             # 启动机器人
+            await self.bot.application.initialize()
+            await self.bot.application.start()
+            
             if self.config.telegram.use_webhook:
                 logger.info("使用Webhook模式启动机器人")
-                await self.bot.start_webhook()
+                # Webhook模式
+                if hasattr(self.config.telegram, 'webhook_url') and self.config.telegram.webhook_url:
+                    await self.bot.application.bot.set_webhook(
+                        url=self.config.telegram.webhook_url,
+                        allowed_updates=Update.ALL_TYPES
+                    )
+                    logger.info(f"Webhook设置完成: {self.config.telegram.webhook_url}")
             else:
                 logger.info("使用轮询模式启动机器人")
-                await self.bot.start_polling()
+                # 轮询模式
+                await self.bot.application.updater.start_polling()
+                logger.info("开始轮询模式")
             
         except Exception as e:
             logger.error(f"启动应用失败: {e}")
@@ -98,8 +110,9 @@ class FootballBotApp:
             self.running = False
             
             # 停止机器人
-            if self.bot:
-                await self.bot.stop()
+            if self.bot and self.bot.application:
+                await self.bot.application.stop()
+                await self.bot.application.shutdown()
                 logger.info("机器人已停止")
             
             # 清理缓存
