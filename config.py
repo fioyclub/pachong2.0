@@ -192,7 +192,8 @@ class Config:
         import sys
         is_test_mode = (
             len(sys.argv) > 1 and (sys.argv[1].startswith('test') or sys.argv[1] == 'health') or
-            os.getenv('TESTING_MODE', '').lower() == 'true'
+            os.getenv('TESTING_MODE', '').lower() == 'true' or
+            'test' in sys.argv[0].lower()  # 检查脚本名称是否包含test
         )
         
         # 验证必需的配置（测试模式下跳过Telegram验证）
