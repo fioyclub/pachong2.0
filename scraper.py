@@ -11,6 +11,8 @@ import logging
 import re
 import tempfile
 import uuid
+import subprocess
+import psutil
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from dataclasses import asdict
@@ -49,6 +51,34 @@ class FootballScraper:
         # 缓存配置
         self.cache_expire_seconds = 300  # 5分钟缓存
         self.cache_key_prefix = "football_matches"
+    
+    def _cleanup_chrome_processes(self):
+        """清理旧的Chrome进程"""
+        try:
+            # 查找并终止Chrome相关进程
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    if proc.info['name'] and 'chrome' in proc.info['name'].lower():
+                        # 检查是否是WebDriver启动的Chrome进程
+                        cmdline = proc.info['cmdline'] or []
+                        if any('--remote-debugging-port' in arg or '--test-type' in arg for arg in cmdline):
+                            logger.info(f"终止Chrome进程: PID {proc.info['pid']}")
+                            proc.terminate()
+                            proc.wait(timeout=3)
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                    continue
+            
+            # Windows特定的清理
+            try:
+                subprocess.run(['taskkill', '/f', '/im', 'chrome.exe'], 
+                             capture_output=True, timeout=5)
+                subprocess.run(['taskkill', '/f', '/im', 'chromedriver.exe'], 
+                             capture_output=True, timeout=5)
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+                
+        except Exception as e:
+            logger.debug(f"清理Chrome进程时出错: {e}")
         
     def _setup_driver(self) -> webdriver.Chrome:
         """设置Chrome驱动"""
@@ -62,10 +92,36 @@ class FootballScraper:
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--remote-debugging-port=9222')
         
-        # 避免用户数据目录冲突的配置
-        temp_dir = tempfile.gettempdir()
-        unique_user_data_dir = f"{temp_dir}/chrome_user_data_{uuid.uuid4().hex[:8]}"
-        chrome_options.add_argument(f'--user-data-dir={unique_user_data_dir}')
+        # 完全禁用用户数据目录相关功能
+        chrome_options.add_argument('--no-first-run')
+        chrome_options.add_argument('--no-default-browser-check')
+        chrome_options.add_argument('--disable-default-apps')
+        chrome_options.add_argument('--disable-sync')
+        chrome_options.add_argument('--disable-background-mode')
+        chrome_options.add_argument('--disable-background-timer-throttling')
+        chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+        chrome_options.add_argument('--disable-renderer-backgrounding')
+        chrome_options.add_argument('--disable-features=TranslateUI,BlinkGenPropertyTrees')
+        chrome_options.add_argument('--disable-ipc-flooding-protection')
+        
+        # 无状态模式配置
+        chrome_options.add_argument('--incognito')
+        chrome_options.add_argument('--disable-session-crashed-bubble')
+        chrome_options.add_argument('--disable-infobars')
+        chrome_options.add_argument('--disable-notifications')
+        chrome_options.add_argument('--disable-popup-blocking')
+        chrome_options.add_argument('--disable-prompt-on-repost')
+        chrome_options.add_argument('--disable-hang-monitor')
+        chrome_options.add_argument('--disable-client-side-phishing-detection')
+        chrome_options.add_argument('--disable-component-update')
+        chrome_options.add_argument('--disable-domain-reliability')
+        
+        # 进程隔离和安全配置
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-setuid-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--single-process')
+        chrome_options.add_argument('--disable-site-isolation-trials')
         
         # 通用配置
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
@@ -79,18 +135,12 @@ class FootballScraper:
         chrome_options.add_argument('--disable-images')
         chrome_options.add_argument('--disable-javascript')
         
-        # 避免会话冲突的额外选项
-        chrome_options.add_argument('--disable-background-timer-throttling')
-        chrome_options.add_argument('--disable-backgrounding-occluded-windows')
-        chrome_options.add_argument('--disable-renderer-backgrounding')
-        chrome_options.add_argument('--disable-features=TranslateUI')
-        chrome_options.add_argument('--disable-ipc-flooding-protection')
-        chrome_options.add_argument('--no-first-run')
-        chrome_options.add_argument('--no-default-browser-check')
-        
         # 内存优化
         chrome_options.add_argument('--memory-pressure-off')
         chrome_options.add_argument('--max_old_space_size=4096')
+        
+        # 清理旧的Chrome进程
+        self._cleanup_chrome_processes()
         
         try:
             driver = webdriver.Chrome(options=chrome_options)
@@ -100,6 +150,8 @@ class FootballScraper:
             return driver
         except Exception as e:
             logger.error(f"设置Chrome驱动失败: {e}")
+            # 尝试清理进程后重试
+            self._cleanup_chrome_processes()
             raise
     
     async def __aenter__(self):
