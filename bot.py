@@ -38,8 +38,22 @@ class FootballBot:
     async def initialize(self):
         """初始化机器人"""
         try:
-            # 创建应用程序
-            self.application = Application.builder().token(self.config.telegram.bot_token).build()
+            # 尝试使用最简单的方式创建 Application，避免触发 Updater
+            from telegram.ext import ApplicationBuilder
+            
+            # 创建 ApplicationBuilder 并禁用不必要的功能
+            builder = ApplicationBuilder()
+            builder.token(self.config.telegram.bot_token)
+            
+            # 尝试禁用可能触发 Updater 的功能
+            try:
+                # 在某些版本中，可以通过这种方式禁用 updater
+                builder.updater(None)
+            except:
+                # 如果不支持，忽略这个设置
+                pass
+            
+            self.application = builder.build()
             
             # 注册命令处理器
             self.application.add_handler(CommandHandler("start", self.start_command))
@@ -757,9 +771,68 @@ class FootballBot:
                 while True:
                     await asyncio.sleep(1)
             else:
-                # 轮询模式 - 使用新的API
+                # 轮询模式 - 使用最简单的方式，避免触发 Updater
                 logger.info("开始轮询模式")
-                await self.application.run_polling()
+                
+                try:
+                    # 手动初始化和启动，不使用 async with
+                    await self.application.initialize()
+                    await self.application.start()
+                    
+                    logger.info("机器人已启动，开始轮询...")
+                    
+                    # 创建轮询任务
+                    async def polling_loop():
+                        offset = 0
+                        while True:
+                            try:
+                                # 获取更新
+                                updates = await self.application.bot.get_updates(
+                                    offset=offset,
+                                    timeout=10,
+                                    allowed_updates=['message', 'callback_query']
+                                )
+                                
+                                # 处理更新
+                                for update in updates:
+                                    offset = update.update_id + 1
+                                    # 将更新放入队列处理
+                                    await self.application.process_update(update)
+                                    
+                            except Exception as e:
+                                logger.error(f"轮询错误: {e}")
+                                await asyncio.sleep(5)  # 错误时等待5秒
+                    
+                    # 启动轮询任务
+                    polling_task = asyncio.create_task(polling_loop())
+                    
+                    # 等待停止信号
+                    import signal
+                    stop_event = asyncio.Event()
+                    
+                    def signal_handler(sig, frame):
+                        logger.info('收到停止信号，正在关闭...')
+                        stop_event.set()
+                    
+                    signal.signal(signal.SIGINT, signal_handler)
+                    signal.signal(signal.SIGTERM, signal_handler)
+                    
+                    try:
+                        await stop_event.wait()
+                    except KeyboardInterrupt:
+                        logger.info("收到中断信号，正在停止...")
+                    finally:
+                        polling_task.cancel()
+                        try:
+                            await polling_task
+                        except asyncio.CancelledError:
+                            pass
+                        await self.application.stop()
+                        await self.application.shutdown()
+                        
+                except Exception as e:
+                    logger.error(f"轮询模式启动失败: {e}")
+                    raise
             
         except Exception as e:
             logger.error(f"运行机器人时出错: {e}")
