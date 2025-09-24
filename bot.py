@@ -693,8 +693,40 @@ class FootballBot:
             reply_markup=reply_markup
         )
     
+    async def health_check(self) -> dict:
+        """机器人健康检查"""
+        try:
+            health_status = {
+                'status': 'healthy',
+                'bot_initialized': self.application is not None,
+                'active_users': len(self.user_sessions),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # 检查机器人连接
+            if self.application:
+                try:
+                    bot_info = await self.application.bot.get_me()
+                    health_status['bot_info'] = {
+                        'username': bot_info.username,
+                        'first_name': bot_info.first_name,
+                        'id': bot_info.id
+                    }
+                except Exception as e:
+                    health_status['status'] = 'unhealthy'
+                    health_status['bot_error'] = str(e)
+            
+            return health_status
+            
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
+    
     async def run(self):
-        """运行机器人"""
+        """运行机器人（独立运行模式）"""
         try:
             await self.initialize()
             
@@ -702,7 +734,7 @@ class FootballBot:
             await self.application.initialize()
             await self.application.start()
             
-            if self.config.telegram.webhook_url:
+            if hasattr(self.config.telegram, 'webhook_url') and self.config.telegram.webhook_url:
                 # Webhook模式
                 await self.application.bot.set_webhook(
                     url=self.config.telegram.webhook_url,
