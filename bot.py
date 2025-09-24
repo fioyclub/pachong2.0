@@ -10,7 +10,9 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import json
+import os
 from dataclasses import asdict
+from aiohttp import web, ClientSession
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -34,6 +36,9 @@ class FootballBot:
         self.cache_manager = CacheManager()
         self.user_sessions: Dict[int, UserSession] = {}
         self.application = None
+        self.http_app = None
+        self.http_runner = None
+        self.http_site = None
         
     async def initialize(self):
         """初始化机器人"""
@@ -739,10 +744,73 @@ class FootballBot:
                 'timestamp': datetime.now().isoformat()
             }
     
+    async def setup_http_server(self):
+        """设置HTTP健康检查服务器"""
+        try:
+            self.http_app = web.Application()
+            
+            # 添加健康检查路由
+            self.http_app.router.add_get('/health', self.handle_health_check)
+            self.http_app.router.add_get('/', self.handle_root)
+            
+            # 获取端口
+            port = int(os.getenv('PORT', 10000))
+            
+            # 创建runner
+            self.http_runner = web.AppRunner(self.http_app)
+            await self.http_runner.setup()
+            
+            # 创建site
+            self.http_site = web.TCPSite(self.http_runner, '0.0.0.0', port)
+            await self.http_site.start()
+            
+            logger.info(f"HTTP健康检查服务器启动在端口 {port}")
+            
+        except Exception as e:
+            logger.error(f"HTTP服务器启动失败: {e}")
+            raise
+    
+    async def handle_health_check(self, request):
+        """处理健康检查请求"""
+        try:
+            health_data = await self.health_check()
+            return web.json_response(health_data)
+        except Exception as e:
+            logger.error(f"健康检查处理失败: {e}")
+            return web.json_response({
+                'status': 'error',
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }, status=500)
+    
+    async def handle_root(self, request):
+        """处理根路径请求"""
+        return web.json_response({
+            'service': 'Football Bot',
+            'status': 'running',
+            'timestamp': datetime.now().isoformat(),
+            'endpoints': ['/health']
+        })
+    
+    async def cleanup_http_server(self):
+        """清理HTTP服务器"""
+        try:
+            if self.http_site:
+                await self.http_site.stop()
+            if self.http_runner:
+                await self.http_runner.cleanup()
+            logger.info("HTTP服务器已关闭")
+        except Exception as e:
+            logger.error(f"HTTP服务器关闭失败: {e}")
+    
     async def run(self):
         """运行机器人（独立运行模式）"""
         try:
+            # 初始化机器人
             await self.initialize()
+            
+            # 启动HTTP健康检查服务器
+            await self.setup_http_server()
             
             logger.info("启动机器人...")
             
@@ -756,20 +824,27 @@ class FootballBot:
                 # 在webhook模式下，需要手动启动和保持运行
                 await self.application.initialize()
                 await self.application.start()
-                # 这里需要其他方式保持运行，比如web服务器
+                
+                # 设置信号处理
                 import signal
-                import sys
+                stop_event = asyncio.Event()
                 
                 def signal_handler(sig, frame):
                     logger.info('收到停止信号，正在关闭...')
-                    sys.exit(0)
+                    stop_event.set()
                 
                 signal.signal(signal.SIGINT, signal_handler)
                 signal.signal(signal.SIGTERM, signal_handler)
                 
-                # 保持运行
-                while True:
-                    await asyncio.sleep(1)
+                try:
+                    # 保持运行
+                    await stop_event.wait()
+                except KeyboardInterrupt:
+                    logger.info("收到中断信号，正在停止...")
+                finally:
+                    await self.cleanup_http_server()
+                    await self.application.stop()
+                    await self.application.shutdown()
             else:
                 # 轮询模式 - 使用最简单的方式，避免触发 Updater
                 logger.info("开始轮询模式")
@@ -827,6 +902,7 @@ class FootballBot:
                             await polling_task
                         except asyncio.CancelledError:
                             pass
+                        await self.cleanup_http_server()
                         await self.application.stop()
                         await self.application.shutdown()
                         
@@ -836,6 +912,7 @@ class FootballBot:
             
         except Exception as e:
             logger.error(f"运行机器人时出错: {e}")
+            await self.cleanup_http_server()
             raise
 
 
