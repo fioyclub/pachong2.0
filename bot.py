@@ -89,10 +89,11 @@ class FootballBot:
         username = update.effective_user.username or "用户"
         
         # 创建或更新用户会话
+        chat_id = str(update.effective_chat.id)
         self.user_sessions[user_id] = UserSession(
-            user_id=user_id,
-            username=username,
-            last_activity=datetime.now(),
+            user_id=str(user_id),
+            chat_id=chat_id,
+            last_active=datetime.now(),
             preferences={"timezone": "Asia/Kuala_Lumpur", "language": "zh"}
         )
         
@@ -139,7 +140,7 @@ class FootballBot:
         
         # 更新用户活动时间
         if user_id in self.user_sessions:
-            self.user_sessions[user_id].last_activity = datetime.now()
+            self.user_sessions[user_id].last_active = datetime.now()
         
         await update.message.reply_text("🔄 正在获取最新的足球比赛信息...")
         
@@ -187,7 +188,7 @@ class FootballBot:
         user_id = update.effective_user.id
         
         if user_id in self.user_sessions:
-            self.user_sessions[user_id].last_activity = datetime.now()
+            self.user_sessions[user_id].last_active = datetime.now()
         
         try:
             matches = await self._get_cached_matches()
@@ -253,7 +254,7 @@ class FootballBot:
         user_id = update.effective_user.id
         
         if user_id in self.user_sessions:
-            self.user_sessions[user_id].last_activity = datetime.now()
+            self.user_sessions[user_id].last_active = datetime.now()
         
         try:
             matches = await self._get_cached_matches()
@@ -392,7 +393,7 @@ class FootballBot:
         
         # 更新用户活动时间
         if user_id in self.user_sessions:
-            self.user_sessions[user_id].last_activity = datetime.now()
+            self.user_sessions[user_id].last_active = datetime.now()
         
         try:
             if data == "check_matches":
@@ -423,7 +424,7 @@ class FootballBot:
         
         # 更新用户活动时间
         if user_id in self.user_sessions:
-            self.user_sessions[user_id].last_activity = datetime.now()
+            self.user_sessions[user_id].last_active = datetime.now()
         
         # 简单的关键词响应
         if any(keyword in message_text.lower() for keyword in ['比赛', 'match', '足球', 'football']):
