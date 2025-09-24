@@ -731,8 +731,6 @@ class FootballBot:
             await self.initialize()
             
             logger.info("启动机器人...")
-            await self.application.initialize()
-            await self.application.start()
             
             if hasattr(self.config.telegram, 'webhook_url') and self.config.telegram.webhook_url:
                 # Webhook模式
@@ -741,20 +739,31 @@ class FootballBot:
                     allowed_updates=Update.ALL_TYPES
                 )
                 logger.info(f"Webhook设置完成: {self.config.telegram.webhook_url}")
+                # 在webhook模式下，需要手动启动和保持运行
+                await self.application.initialize()
+                await self.application.start()
+                # 这里需要其他方式保持运行，比如web服务器
+                import signal
+                import sys
+                
+                def signal_handler(sig, frame):
+                    logger.info('收到停止信号，正在关闭...')
+                    sys.exit(0)
+                
+                signal.signal(signal.SIGINT, signal_handler)
+                signal.signal(signal.SIGTERM, signal_handler)
+                
+                # 保持运行
+                while True:
+                    await asyncio.sleep(1)
             else:
-                # 轮询模式
-                await self.application.updater.start_polling()
+                # 轮询模式 - 使用新的API
                 logger.info("开始轮询模式")
-            
-            # 保持运行
-            await self.application.updater.idle()
+                await self.application.run_polling()
             
         except Exception as e:
             logger.error(f"运行机器人时出错: {e}")
             raise
-        finally:
-            await self.application.stop()
-            await self.application.shutdown()
 
 
 # 主函数
