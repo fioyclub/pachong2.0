@@ -9,6 +9,8 @@
 import asyncio
 import logging
 import re
+import tempfile
+import uuid
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from dataclasses import asdict
@@ -60,6 +62,11 @@ class FootballScraper:
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--remote-debugging-port=9222')
         
+        # 避免用户数据目录冲突的配置
+        temp_dir = tempfile.gettempdir()
+        unique_user_data_dir = f"{temp_dir}/chrome_user_data_{uuid.uuid4().hex[:8]}"
+        chrome_options.add_argument(f'--user-data-dir={unique_user_data_dir}')
+        
         # 通用配置
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -71,6 +78,15 @@ class FootballScraper:
         chrome_options.add_argument('--disable-plugins')
         chrome_options.add_argument('--disable-images')
         chrome_options.add_argument('--disable-javascript')
+        
+        # 避免会话冲突的额外选项
+        chrome_options.add_argument('--disable-background-timer-throttling')
+        chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+        chrome_options.add_argument('--disable-renderer-backgrounding')
+        chrome_options.add_argument('--disable-features=TranslateUI')
+        chrome_options.add_argument('--disable-ipc-flooding-protection')
+        chrome_options.add_argument('--no-first-run')
+        chrome_options.add_argument('--no-default-browser-check')
         
         # 内存优化
         chrome_options.add_argument('--memory-pressure-off')
@@ -431,6 +447,10 @@ class FootballScraper:
                 )
         
         try:
+            # 确保driver已初始化
+            if not self.driver:
+                self.driver = self._setup_driver()
+            
             matches = await self.scrape_football_matches()
             
             # 过滤即将开始的比赛
