@@ -18,6 +18,9 @@ python-dateutil>=2.8.0
 pydantic==1.10.23
 dataclasses-json>=0.5.0
 
+# 系统进程管理
+psutil>=5.8.0
+
 # HTTP客户端
 httpx>=0.24.0
 requests>=2.25.0
