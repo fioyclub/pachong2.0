@@ -78,12 +78,44 @@ class MatchData:
     
     def format_for_telegram(self) -> str:
         """格式化为Telegram消息"""
+        # 中文到英文队伍名称映射
+        team_name_mapping = {
+            '曼城': 'Manchester City',
+            '利物浦': 'Liverpool',
+            '拜仁': 'Bayern Munich',
+            '多特': 'Borussia Dortmund',
+            '皇马': 'Real Madrid',
+            '巴萨': 'Barcelona',
+            '尤文': 'Juventus',
+            'AC米兰': 'AC Milan',
+            '巴黎': 'Paris Saint-Germain',
+            '马赛': 'Marseille'
+        }
+        
+        # 中文到英文联赛名称映射
+        league_name_mapping = {
+            '英超': 'Premier League',
+            '西甲': 'La Liga',
+            '德甲': 'Bundesliga',
+            '意甲': 'Serie A',
+            '法甲': 'Ligue 1',
+            '欧冠': 'Champions League',
+            '欧联': 'Europa League'
+        }
+        
+        # 转换队伍名称为英文
+        home_team_en = team_name_mapping.get(self.home_team, self.home_team)
+        away_team_en = team_name_mapping.get(self.away_team, self.away_team)
+        
+        # 转换联赛名称为英文
+        league_en = league_name_mapping.get(self.league, self.league) if self.league else 'Unknown League'
+        
         time_str = self.start_time.strftime('%Y-%m-%d %H:%M')
         return (
-            f"⚽ {self.home_team} 🆚 {self.away_team}\n"
-            f"🕐 {time_str} (MY时间)\n"
-            f"📊 赔率: 主胜{self.odds_1} | 平局{self.odds_x} | 客胜{self.odds_2}\n"
-            f"🏆 {self.league or '未知联赛'}\n"
+            f"⚽️ {home_team_en} 🆚 {away_team_en}\n"
+            f"🕐 {time_str} (MY Time)\n"
+            f"📊 Odds: Home {self.odds_1} | Draw {self.odds_x} | Away {self.odds_2}\n"
+            f"🏆 {league_en}\n"
         )
 
 
@@ -205,8 +237,7 @@ DEFAULT_SETTINGS = {
     'max_matches': 12,
     'timezone': 'Asia/Kuala_Lumpur',
     'retry_attempts': 3,
-    'request_timeout': 30,
-    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    'request_timeout': 30
 }
 
 # 系统组件列表
