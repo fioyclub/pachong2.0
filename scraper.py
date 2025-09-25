@@ -58,78 +58,187 @@ class FootballScraper:
         self.cache_key_prefix = "football_matches"
         self.cache_expire_seconds = 300  # 5分钟缓存
         
-        # BC.Game API配置
-        self.api_url = "https://api-k-c7818b61-623.sptpub.com/api/v3/live/brand/2103509236163162112/en/3517201465846"
+        # BC.Game API配置 - 使用成功验证的端点
+        self.api_endpoints = [
+            "https://api-k-c7818b61-623.sptpub.com/api/v3/prematch/brand/2103509236163162112/en/3517560938928"
+        ]
         
-        # 请求头配置
+        # 请求头配置 - 模拟真实浏览器请求
         self.headers = {
-            "accept": "application/json",
+            "accept": "application/json, text/plain, */*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+            "cache-control": "no-cache",
             "origin": "https://bc.game",
+            "pragma": "no-cache",
             "referer": "https://bc.game/",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         }
         
-        # 真实数据文件路径
-        self.realistic_data_file = "realistic_matches.json"
+        # 体育项目映射
+        self.sports_mapping = {}
+        self.categories_mapping = {}
+        self.tournaments_mapping = {}
     
-    def _load_realistic_data(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """从真实数据文件加载比赛数据"""
+    def _fetch_api_data(self, url: str) -> Optional[Dict[str, Any]]:
+        """从BC.Game API获取数据"""
         try:
-            if not os.path.exists(self.realistic_data_file):
-                logger.warning(f"真实数据文件不存在: {self.realistic_data_file}")
-                return []
+            logger.info(f"正在请求API: {url}")
+            response = requests.get(url, headers=self.headers, timeout=30)
             
-            with open(self.realistic_data_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"API请求成功，状态码: {response.status_code}")
+                return data
+            else:
+                logger.warning(f"API请求失败，状态码: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"API请求出错: {e}")
+            return None
+    
+    def _parse_api_response(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """解析BC.Game API响应数据"""
+        matches = []
+        
+        try:
+            # 解析体育项目映射
+            if 'sports' in data:
+                for sport_id, sport_info in data['sports'].items():
+                    self.sports_mapping[sport_id] = sport_info
             
-            if not isinstance(data, list):
-                logger.error("真实数据文件格式错误，应为列表格式")
-                return []
+            # 解析分类映射
+            if 'categories' in data:
+                for category_id, category_info in data['categories'].items():
+                    self.categories_mapping[category_id] = category_info
             
-            # 限制返回数量
-            matches = data[:limit]
+            # 解析锦标赛映射
+            if 'tournaments' in data:
+                for tournament_id, tournament_info in data['tournaments'].items():
+                    self.tournaments_mapping[tournament_id] = tournament_info
             
-            # 转换为标准格式
-            formatted_matches = []
-            for match in matches:
-                formatted_match = self._format_realistic_match(match)
-                if formatted_match:
-                    formatted_matches.append(formatted_match)
+            # 解析事件数据
+            if 'events' in data:
+                events = data['events']
+                
+                # 处理字典格式的events
+                if isinstance(events, dict):
+                    for event_id, event_data in events.items():
+                        match = self._parse_single_event(event_id, event_data)
+                        if match:
+                            matches.append(match)
+                
+                # 处理列表格式的events
+                elif isinstance(events, list):
+                    for event_data in events:
+                        if isinstance(event_data, dict) and 'id' in event_data:
+                            match = self._parse_single_event(event_data['id'], event_data)
+                            if match:
+                                matches.append(match)
             
-            logger.info(f"从真实数据文件加载了 {len(formatted_matches)} 场比赛")
-            return formatted_matches
+            logger.info(f"成功解析 {len(matches)} 场比赛")
+            return matches
             
         except Exception as e:
-            logger.error(f"加载真实数据文件时出错: {e}")
+            logger.error(f"解析API响应时出错: {e}")
             return []
     
-    def _format_realistic_match(self, match_data: Dict) -> Optional[Dict[str, Any]]:
-        """格式化真实比赛数据为标准格式"""
+    def _parse_single_event(self, event_id: str, event_data: Dict) -> Optional[Dict[str, Any]]:
+        """解析单个事件数据"""
         try:
-            formatted_match = {
-                "match_id": match_data.get("match_id", ""),
-                "home_team": match_data.get("home_team", ""),
-                "away_team": match_data.get("away_team", ""),
-                "league": match_data.get("league", ""),
-                "start_time": match_data.get("start_time", ""),
-                "status": match_data.get("status", "upcoming"),
-                "odds": {
-                    "home_win": match_data.get("odds", {}).get("home_win", 0.0),
-                    "draw": match_data.get("odds", {}).get("draw", 0.0),
-                    "away_win": match_data.get("odds", {}).get("away_win", 0.0)
-                }
-            }
-            
-            # 验证必要字段
-            if not all([formatted_match["home_team"], formatted_match["away_team"]]):
-                logger.warning(f"比赛数据缺少必要字段: {match_data}")
+            # 获取事件描述信息
+            desc = event_data.get('desc', {})
+            if not desc:
                 return None
             
-            return formatted_match
+            # 获取比赛时间
+            scheduled = desc.get('scheduled')
+            if not scheduled:
+                return None
+            
+            # 获取参赛队伍
+            competitors = desc.get('competitors', {})
+            if len(competitors) < 2:
+                return None
+            
+            # 提取队伍名称
+            teams = list(competitors.values())
+            home_team = teams[0].get('name', '') if len(teams) > 0 else ''
+            away_team = teams[1].get('name', '') if len(teams) > 1 else ''
+            
+            if not home_team or not away_team:
+                return None
+            
+            # 获取体育项目、分类、锦标赛信息
+            sport_id = desc.get('sport')
+            category_id = desc.get('category')
+            tournament_id = desc.get('tournament')
+            
+            sport_name = self.sports_mapping.get(sport_id, {}).get('name', 'Unknown')
+            category_name = self.categories_mapping.get(category_id, {}).get('name', 'Unknown')
+            tournament_name = self.tournaments_mapping.get(tournament_id, {}).get('name', 'Unknown')
+            
+            # 解析赔率
+            odds = self._parse_event_odds(event_data.get('markets', {}))
+            
+            # 格式化比赛数据
+            match_data = {
+                "match_id": event_id,
+                "home_team": home_team,
+                "away_team": away_team,
+                "league": f"{sport_name} - {tournament_name}",
+                "category": category_name,
+                "sport": sport_name,
+                "tournament": tournament_name,
+                "start_time": scheduled,
+                "status": "upcoming",
+                "odds": odds
+            }
+            
+            return match_data
             
         except Exception as e:
-            logger.error(f"格式化比赛数据时出错: {e}")
+            logger.error(f"解析事件 {event_id} 时出错: {e}")
             return None
+    
+    def _parse_event_odds(self, markets: Dict) -> Dict[str, float]:
+        """解析事件赔率"""
+        odds = {"home_win": 0.0, "draw": 0.0, "away_win": 0.0}
+        
+        try:
+            # 查找1X2市场（胜平负）
+            for market_id, market_data in markets.items():
+                if isinstance(market_data, dict) and 'selections' in market_data:
+                    selections = market_data['selections']
+                    
+                    # 如果有3个选项，通常是胜平负
+                    if len(selections) == 3:
+                        selection_list = list(selections.values())
+                        if len(selection_list) >= 3:
+                            odds["home_win"] = float(selection_list[0].get('k', 0.0))
+                            odds["draw"] = float(selection_list[1].get('k', 0.0))
+                            odds["away_win"] = float(selection_list[2].get('k', 0.0))
+                            break
+                    
+                    # 如果只有2个选项，通常是主客胜负
+                    elif len(selections) == 2:
+                        selection_list = list(selections.values())
+                        if len(selection_list) >= 2:
+                            odds["home_win"] = float(selection_list[0].get('k', 0.0))
+                            odds["away_win"] = float(selection_list[1].get('k', 0.0))
+                            break
+            
+        except Exception as e:
+            logger.error(f"解析赔率时出错: {e}")
+        
+        return odds
     
     def _get_default_config(self):
         """获取默认配置"""
@@ -148,61 +257,106 @@ class FootballScraper:
         pass
     
     async def scrape_football_matches(self) -> List[MatchData]:
-        """抓取足球比赛数据 - 使用真实数据结构"""
+        """抓取足球比赛数据 - 使用真实BC.Game API"""
         try:
-            logger.info(f"开始获取足球比赛数据，限制数量: {self.config.crawler.max_matches}")
+            logger.info(f"开始从BC.Game API获取足球比赛数据，限制数量: {self.config.crawler.max_matches}")
             
-            # 首先尝试从真实数据文件加载
-            matches = self._load_realistic_data(self.config.crawler.max_matches)
+            all_matches = []
             
-            if matches:
-                logger.info(f"成功加载 {len(matches)} 场真实比赛数据")
-                # 转换为MatchData格式
-                match_data_list = []
-                for match in matches:
-                    try:
-                        # 解析时间字符串
-                        start_time_str = match.get("start_time", "")
-                        if start_time_str:
-                            try:
-                                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
-                                start_time = start_time.astimezone(self.malaysia_tz)
-                            except:
-                                start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
-                        else:
-                            start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
-                        
-                        match_data = MatchData(
-                            match_id=match.get("match_id", ""),
-                            start_time=start_time,
-                            home_team=match.get("home_team", ""),
-                            away_team=match.get("away_team", ""),
-                            odds_1=float(match.get("odds", {}).get("home_win", 0.0)),
-                            odds_x=float(match.get("odds", {}).get("draw", 0.0)),
-                            odds_2=float(match.get("odds", {}).get("away_win", 0.0)),
-                            league=match.get("league", "BC.Game"),
-                            status=MatchStatus.UPCOMING
-                        )
-                        
+            # 遍历所有API端点
+            for endpoint in self.api_endpoints:
+                try:
+                    # 获取API数据
+                    api_data = self._fetch_api_data(endpoint)
+                    if not api_data:
+                        continue
+                    
+                    # 解析API响应
+                    matches = self._parse_api_response(api_data)
+                    all_matches.extend(matches)
+                    
+                    logger.info(f"从端点 {endpoint} 获取到 {len(matches)} 场比赛")
+                    
+                except Exception as e:
+                    logger.error(f"处理API端点 {endpoint} 时出错: {e}")
+                    continue
+            
+            # 去重并限制数量
+            unique_matches = self._deduplicate_matches(all_matches)
+            limited_matches = unique_matches[:self.config.crawler.max_matches]
+            
+            logger.info(f"总共获取到 {len(unique_matches)} 场唯一比赛，返回前 {len(limited_matches)} 场")
+            
+            # 转换为MatchData格式
+            match_data_list = []
+            for match in limited_matches:
+                try:
+                    match_data = self._convert_to_match_data(match)
+                    if match_data:
                         match_data_list.append(match_data)
                         
-                    except Exception as e:
-                        logger.error(f"转换比赛数据时出错: {e}")
-                        continue
-                
-                return match_data_list
-            else:
-                logger.warning("无法加载真实数据文件")
-                return []
+                except Exception as e:
+                    logger.error(f"转换比赛数据时出错: {e}")
+                    continue
+            
+            return match_data_list
                 
         except Exception as e:
             logger.error(f"获取比赛数据时发生错误: {e}")
             return []
     
-    async def _parse_event_data(self, event_id: str, event_data: Dict) -> Optional[MatchData]:
-        """解析单个事件数据（已弃用，现在使用真实数据文件）"""
-        logger.warning("_parse_event_data方法已弃用，请使用_load_realistic_data方法")
-        return None
+    def _deduplicate_matches(self, matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """去重比赛数据"""
+        seen_matches = set()
+        unique_matches = []
+        
+        for match in matches:
+            # 使用match_id作为唯一标识
+            match_id = match.get('match_id', '')
+            if match_id and match_id not in seen_matches:
+                seen_matches.add(match_id)
+                unique_matches.append(match)
+        
+        return unique_matches
+    
+    def _convert_to_match_data(self, match: Dict[str, Any]) -> Optional[MatchData]:
+        """将解析的比赛数据转换为MatchData格式"""
+        try:
+            # 解析时间字符串
+            start_time_str = match.get("start_time", "")
+            if start_time_str:
+                try:
+                    # 处理时间戳格式
+                    if isinstance(start_time_str, (int, float)):
+                        start_time = datetime.fromtimestamp(start_time_str / 1000, tz=self.malaysia_tz)
+                    else:
+                        # 处理ISO格式时间
+                        start_time = datetime.fromisoformat(str(start_time_str).replace('Z', '+00:00'))
+                        start_time = start_time.astimezone(self.malaysia_tz)
+                except Exception as e:
+                    logger.warning(f"解析时间失败: {e}，使用默认时间")
+                    start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
+            else:
+                start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
+            
+            # 创建MatchData对象
+            match_data = MatchData(
+                match_id=match.get("match_id", ""),
+                start_time=start_time,
+                home_team=match.get("home_team", ""),
+                away_team=match.get("away_team", ""),
+                odds_1=float(match.get("odds", {}).get("home_win", 0.0)),
+                odds_x=float(match.get("odds", {}).get("draw", 0.0)),
+                odds_2=float(match.get("odds", {}).get("away_win", 0.0)),
+                league=match.get("league", "BC.Game"),
+                status=MatchStatus.UPCOMING
+            )
+            
+            return match_data
+            
+        except Exception as e:
+            logger.error(f"转换MatchData时出错: {e}")
+            return None
     
     # 已移除不再需要的辅助方法：
     # - _extract_team_names: 现在直接从真实数据文件获取队伍名称
@@ -213,55 +367,22 @@ class FootballScraper:
     # - _fallback_scraping_methods: 现在直接从真实数据文件获取数据
     
     async def get_upcoming_matches(self, limit: int = 10) -> List[MatchData]:
-        """获取即将开始的足球赛事（从真实数据文件）"""
+        """获取即将开始的足球赛事（从BC.Game API）"""
         try:
-            logger.info(f"开始从真实数据文件获取 {limit} 场足球赛事")
+            logger.info(f"开始从BC.Game API获取 {limit} 场足球赛事")
             
-            # 从真实数据文件加载比赛数据
-            realistic_matches = self._load_realistic_data(limit)
+            # 临时设置限制
+            original_limit = self.config.crawler.max_matches
+            self.config.crawler.max_matches = limit
             
-            if not realistic_matches:
-                logger.warning("无法从真实数据文件获取比赛数据")
-                return []
+            # 调用主要的抓取方法
+            matches = await self.scrape_football_matches()
             
-            # 转换为MatchData格式
-            match_data_list = []
-            for match in realistic_matches:
-                try:
-                    # 解析时间字符串
-                    start_time_str = match.get("start_time", "")
-                    if start_time_str:
-                        # 尝试解析ISO格式时间
-                        try:
-                            start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
-                            # 转换为马来西亚时区
-                            start_time = start_time.astimezone(self.malaysia_tz)
-                        except:
-                            # 如果解析失败，使用当前时间+2小时
-                            start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
-                    else:
-                        start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
-                    
-                    match_data = MatchData(
-                        match_id=match.get("match_id", ""),
-                        start_time=start_time,
-                        home_team=match.get("home_team", ""),
-                        away_team=match.get("away_team", ""),
-                        odds_1=float(match.get("odds", {}).get("home_win", 0.0)),
-                        odds_x=float(match.get("odds", {}).get("draw", 0.0)),
-                        odds_2=float(match.get("odds", {}).get("away_win", 0.0)),
-                        league=match.get("league", "BC.Game"),
-                        status=MatchStatus.UPCOMING
-                    )
-                    
-                    match_data_list.append(match_data)
-                    
-                except Exception as e:
-                    logger.error(f"转换比赛数据时出错: {e}")
-                    continue
+            # 恢复原始限制
+            self.config.crawler.max_matches = original_limit
             
-            logger.info(f"成功获取 {len(match_data_list)} 场比赛数据")
-            return match_data_list
+            logger.info(f"成功获取 {len(matches)} 场比赛数据")
+            return matches
             
         except Exception as e:
             logger.error(f"获取即将开始的比赛时出错: {e}")
