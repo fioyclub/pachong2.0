@@ -275,20 +275,20 @@ class FootballScraper:
                                 return teams[0].strip(), teams[1].strip()
             
             # 如果无法提取真实队伍名称，生成默认名称
-            return f"队伍A", f"队伍B"
+            return f"Team A", f"Team B"
             
         except Exception as e:
             logger.debug(f"提取队伍名称时出错: {e}")
-            return f"队伍A", f"队伍B"
+            return f"Team A", f"Team B"
     
     async def _generate_team_names(self, event_id: str) -> tuple[str, str]:
         """根据事件ID生成队伍名称"""
         teams_pool = [
-            ("曼城", "利物浦"), ("皇马", "巴萨"), ("拜仁", "多特"),
-            ("巴黎", "马赛"), ("尤文", "AC米兰"), ("切尔西", "阿森纳"),
-            ("马竞", "塞维利亚"), ("国米", "那不勒斯"), ("热刺", "曼联"),
-            ("莱比锡", "勒沃库森"), ("里昂", "摩纳哥"), ("罗马", "拉齐奥"),
-            ("阿贾克斯", "费耶诺德"), ("本菲卡", "波尔图"), ("凯尔特人", "流浪者")
+            ("Manchester United", "Liverpool"), ("Real Madrid", "Barcelona"), ("Bayern Munich", "Borussia Dortmund"),
+            ("Paris Saint-Germain", "Marseille"), ("Juventus", "AC Milan"), ("Chelsea", "Arsenal"),
+            ("Atletico Madrid", "Sevilla"), ("Inter Milan", "Napoli"), ("Tottenham", "Manchester City"),
+            ("RB Leipzig", "Bayer Leverkusen"), ("Lyon", "Monaco"), ("AS Roma", "Lazio"),
+            ("Ajax", "Feyenoord"), ("Benfica", "Porto"), ("Celtic", "Rangers")
         ]
         
         # 使用事件ID的哈希值来选择队伍
@@ -300,14 +300,15 @@ class FootballScraper:
         logger.info(f"生成 {limit} 条模拟足球赛事数据")
         
         teams = [
-            ("曼城", "利物浦"), ("皇马", "巴萨"), ("拜仁", "多特"),
-            ("巴黎", "马赛"), ("尤文", "AC米兰"), ("切尔西", "阿森纳"),
-            ("马竞", "塞维利亚"), ("国米", "那不勒斯"), ("热刺", "曼联"),
-            ("莱比锡", "勒沃库森"), ("里昂", "摩纳哥"), ("罗马", "拉齐奥"),
-            ("阿贾克斯", "费耶诺德"), ("本菲卡", "波尔图"), ("凯尔特人", "流浪者")
+            ("Manchester United", "Liverpool"), ("Real Madrid", "Barcelona"), ("Bayern Munich", "Borussia Dortmund"),
+            ("Paris Saint-Germain", "Marseille"), ("Juventus", "AC Milan"), ("Chelsea", "Arsenal"),
+            ("Atletico Madrid", "Sevilla"), ("Inter Milan", "Napoli"), ("Tottenham", "Manchester City"),
+            ("RB Leipzig", "Bayer Leverkusen"), ("Lyon", "Monaco"), ("AS Roma", "Lazio"),
+            ("Ajax", "Feyenoord"), ("Benfica", "Porto"), ("Celtic", "Rangers"),
+            ("Villarreal", "Real Sociedad"), ("Atalanta", "Fiorentina")
         ]
         
-        leagues = ["英超", "西甲", "德甲", "法甲", "意甲", "欧冠", "欧联杯"]
+        leagues = ["Premier League", "La Liga", "Bundesliga", "Ligue 1", "Serie A", "Champions League", "Europa League"]
         
         matches = []
         base_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
