@@ -114,9 +114,9 @@ class FootballScraper:
                 "start_time": match_data.get("start_time", ""),
                 "status": match_data.get("status", "upcoming"),
                 "odds": {
-                    "home_win": match_data.get("odds", {}).get("1", 0.0),
-                    "draw": match_data.get("odds", {}).get("X", 0.0),
-                    "away_win": match_data.get("odds", {}).get("2", 0.0)
+                    "home_win": match_data.get("odds", {}).get("home_win", 0.0),
+                    "draw": match_data.get("odds", {}).get("draw", 0.0),
+                    "away_win": match_data.get("odds", {}).get("away_win", 0.0)
                 }
             }
             
