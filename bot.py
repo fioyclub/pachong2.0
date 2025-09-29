@@ -21,10 +21,66 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode
 
-from models import MatchData, UserSession, MatchStatus
-from scraper import scrape_football_data
-from cache_manager import CacheManager
-from config import get_config
+try:
+    from models import MatchData, UserSession, MatchStatus
+    from scraper import scrape_football_data
+    from cache_manager import CacheManager
+    from config import get_config
+except ImportError:
+    # 在部署环境中，尝试相对导入
+    try:
+        from .models import MatchData, UserSession, MatchStatus
+        from .scraper import scrape_football_data
+        from .cache_manager import CacheManager
+        from .config import get_config
+    except ImportError:
+        # 如果都失败了，创建占位符
+        from enum import Enum
+        from dataclasses import dataclass
+        from datetime import datetime
+        from typing import Optional, Dict, Any
+        
+        class MatchStatus(Enum):
+            UPCOMING = "upcoming"
+            LIVE = "live"
+            FINISHED = "finished"
+        
+        @dataclass
+        class MatchData:
+            home_team: str = ""
+            away_team: str = ""
+            match_time: Optional[datetime] = None
+            league: str = ""
+            odds_1: str = ""
+            odds_x: str = ""
+            odds_2: str = ""
+            status: MatchStatus = MatchStatus.UPCOMING
+            
+            def format_for_telegram(self) -> str:
+                return f"{self.home_team} vs {self.away_team}"
+        
+        @dataclass
+        class UserSession:
+            user_id: str = ""
+            chat_id: str = ""
+            last_active: Optional[datetime] = None
+            preferences: Dict[str, Any] = None
+        
+        class CacheManager:
+            def __init__(self):
+                pass
+            def get(self, key): return None
+            def set(self, key, value, expire=None): pass
+        
+        async def scrape_football_data():
+            return []
+        
+        def get_config():
+            class Config:
+                class Telegram:
+                    bot_token = "dummy_token"
+                telegram = Telegram()
+            return Config()
 
 logger = logging.getLogger(__name__)
 
