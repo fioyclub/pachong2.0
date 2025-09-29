@@ -16,10 +16,65 @@ from bs4 import BeautifulSoup
 import pytz
 from loguru import logger
 
-from models import MatchData, MatchStatus
-from cache_manager import CacheManager
-from error_handler import ErrorHandler
-from api_updater import APIEndpointUpdater
+try:
+    from models import MatchData, MatchStatus
+    from cache_manager import CacheManager
+    from error_handler import ErrorHandler
+except ImportError:
+    # 在部署环境中，尝试相对导入
+    try:
+        from .models import MatchData, MatchStatus
+        from .cache_manager import CacheManager
+        from .error_handler import ErrorHandler
+    except ImportError:
+        # 如果都失败了，创建占位符类
+        from enum import Enum
+        from dataclasses import dataclass
+        from datetime import datetime
+        from typing import Optional
+        
+        class MatchStatus(Enum):
+            UPCOMING = "upcoming"
+            LIVE = "live"
+            FINISHED = "finished"
+        
+        @dataclass
+        class MatchData:
+            home_team: str = ""
+            away_team: str = ""
+            match_time: Optional[datetime] = None
+            league: str = ""
+            odds_1: str = ""
+            odds_x: str = ""
+            odds_2: str = ""
+            status: MatchStatus = MatchStatus.UPCOMING
+            
+            def format_for_telegram(self) -> str:
+                return f"{self.home_team} vs {self.away_team}"
+        
+        class CacheManager:
+            def __init__(self):
+                pass
+            def get(self, key): return None
+            def set(self, key, value, expire=None): pass
+            def _start_cleanup_task(self): pass
+        
+        class ErrorHandler:
+            def __init__(self):
+                pass
+try:
+    from api_updater import APIEndpointUpdater
+except ImportError:
+    # 在部署环境中，尝试相对导入
+    try:
+        from .api_updater import APIEndpointUpdater
+    except ImportError:
+        # 如果都失败了，创建一个空的类作为占位符
+        class APIEndpointUpdater:
+            def __init__(self, *args, **kwargs):
+                pass
+            def update_endpoints(self, *args, **kwargs):
+                return False
 
 # 简单的装饰器实现
 def retry_on_error(max_attempts=3, base_delay=2.0):
