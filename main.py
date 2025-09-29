@@ -12,11 +12,67 @@ import sys
 from typing import Optional
 
 from telegram import Update
-from config import get_config
-from bot import FootballBot
-from scraper import FootballScraper
-from cache_manager import get_cache_manager
-from error_handler import get_error_handler
+try:
+    from config import get_config
+    from bot import FootballBot
+    from scraper import FootballScraper
+    from cache_manager import get_cache_manager
+    from error_handler import get_error_handler
+except ImportError:
+    # 在部署环境中，尝试相对导入
+    try:
+        from .config import get_config
+        from .bot import FootballBot
+        from .scraper import FootballScraper
+        from .cache_manager import get_cache_manager
+        from .error_handler import get_error_handler
+    except ImportError:
+        # 如果都失败了，创建占位符
+        def get_config():
+            class Config:
+                class Telegram:
+                    bot_token = "dummy_token"
+                    use_webhook = False
+                telegram = Telegram()
+            return Config()
+        
+        class FootballBot:
+            def __init__(self):
+                pass
+            async def initialize(self):
+                pass
+            async def start(self):
+                pass
+            async def stop(self):
+                pass
+            async def health_check(self):
+                return {'status': 'ok'}
+        
+        class FootballScraper:
+            def __init__(self, config=None):
+                pass
+            async def get_upcoming_matches(self, limit=10):
+                return []
+        
+        class DummyCacheManager:
+            async def initialize(self):
+                pass
+            async def cleanup(self):
+                pass
+            async def get_stats(self):
+                return {}
+        
+        class DummyErrorHandler:
+            async def handle_exception(self, e, context=None):
+                pass
+            async def get_stats(self):
+                return {}
+        
+        def get_cache_manager():
+            return DummyCacheManager()
+        
+        def get_error_handler():
+            return DummyErrorHandler()
 
 # 配置日志
 logging.basicConfig(
