@@ -749,9 +749,14 @@ class FootballScraper:
                             start_time = datetime.fromisoformat(time_str)
                             start_time = start_time.astimezone(self.malaysia_tz)
                         else:
-                            # 尝试其他时间格式
-                            logger.warning(f"未知时间格式: {start_time_str}，使用默认时间")
-                            start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
+                            # 尝试解析简单的日期时间格式 (YYYY-MM-DD HH:MM:SS)
+                            try:
+                                start_time = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
+                                start_time = self.malaysia_tz.localize(start_time)
+                            except ValueError:
+                                # 尝试其他时间格式
+                                logger.warning(f"未知时间格式: {start_time_str}，使用默认时间")
+                                start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
                 except Exception as e:
                     logger.warning(f"解析时间失败: {e}，原始数据: {start_time_str}，使用默认时间")
                     start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
