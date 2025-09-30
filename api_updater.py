@@ -651,7 +651,16 @@ class AdvancedAPIEndpointUpdater:
                 'total_matches': total_matches
             }
     
-    async def discover_new_endpoints(self) -> List[str]:
+    def discover_new_endpoints(self) -> List[str]:
+        """同步包装方法，调用异步的API发现"""
+        try:
+            import asyncio
+            return asyncio.run(self._async_discover_new_endpoints())
+        except Exception as e:
+            logger.error(f"异步API发现失败: {e}")
+            return self._fallback_discover_endpoints()
+    
+    async def _async_discover_new_endpoints(self) -> List[str]:
         """使用Playwright优化版本发现新的API端点"""
         logger.info("开始使用Playwright自动发现新的API端点...")
         
@@ -662,8 +671,7 @@ class AdvancedAPIEndpointUpdater:
             # 创建API发现器实例
             discovery = BCGameAPIDiscovery(
                 headless=True,
-                browser_type='chromium',
-                max_concurrent=2
+                browser_type='chromium'
             )
             
             # 发现API端点
@@ -779,23 +787,45 @@ class AdvancedAPIEndpointUpdater:
         return list(discovered_endpoints)
     
     def _is_potential_api_url(self, url: str) -> bool:
-        """判断URL是否是潜在的API端点"""
-        api_indicators = [
-            '/api/',
-            '/cache/',
-            'platform-sports',
-            'live10',
-            'prematch',
-            'live',
-            '.json'
-        ]
-        
+        """判断URL是否是潜在的体育数据API端点"""
         # 必须是bc.game域名
         if 'bc.game' not in url:
             return False
         
-        # 检查是否包含API指示符
-        return any(indicator in url.lower() for indicator in api_indicators)
+        # 排除用户相关API
+        user_api_patterns = [
+            '/api/account/',
+            '/api/user/',
+            '/api/auth/',
+            '/api/login',
+            '/api/register',
+            '/api/profile',
+            '/api/wallet',
+            '/api/payment',
+            '/api/deposit',
+            '/api/withdraw'
+        ]
+        
+        # 如果包含用户API模式，直接排除
+        if any(pattern in url.lower() for pattern in user_api_patterns):
+            return False
+        
+        # 体育数据API指示符
+        sports_indicators = [
+            'platform-sports',
+            'live10',
+            'prematch',
+            'live',
+            'sports',
+            'soccer',
+            'football',
+            'match',
+            'odds',
+            'bet'
+        ]
+        
+        # 检查是否包含体育数据指示符
+        return any(indicator in url.lower() for indicator in sports_indicators)
     
     def check_and_update_endpoints(self) -> bool:
         """检查并更新API端点"""
@@ -807,12 +837,7 @@ class AdvancedAPIEndpointUpdater:
         
         if not current_endpoints:
             logger.warning("没有配置的API端点，开始自动发现...")
-            try:
-                import asyncio
-                new_endpoints = asyncio.run(self.discover_new_endpoints())
-            except Exception as e:
-                logger.error(f"异步API发现失败，使用回退方法: {e}")
-                new_endpoints = self._fallback_discover_endpoints()
+            new_endpoints = self.discover_new_endpoints()
             
             if new_endpoints:
                 config['endpoints'] = new_endpoints[:3]  # 保留前3个
@@ -838,12 +863,7 @@ class AdvancedAPIEndpointUpdater:
         # 如果有端点失效，尝试发现新端点
         if failed_endpoints:
             logger.info(f"检测到 {len(failed_endpoints)} 个失效端点，开始发现新端点...")
-            try:
-                import asyncio
-                new_endpoints = asyncio.run(self.discover_new_endpoints())
-            except Exception as e:
-                logger.error(f"异步API发现失败，使用回退方法: {e}")
-                new_endpoints = self._fallback_discover_endpoints()
+            new_endpoints = self.discover_new_endpoints()
             
             # 测试新发现的端点
             for endpoint in new_endpoints:
