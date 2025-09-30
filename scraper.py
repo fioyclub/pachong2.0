@@ -112,7 +112,7 @@ class FootballScraper:
         self.cache_manager = CacheManager()
         self.error_handler = ErrorHandler()
         self.cache_key_prefix = "football_matches"
-        self.cache_expire_seconds = 300  # 5分钟缓存
+        self.cache_expire_seconds = 60  # 1分钟缓存（缩短缓存时间以提高实时性）
         
         # 初始化API端点更新器
         self.api_updater = APIEndpointUpdater()
@@ -793,9 +793,9 @@ class FootballScraper:
         try:
             logger.info(f"开始从BC.Game API获取 {limit} 场足球赛事")
             
-            # 临时设置限制
+            # 临时设置限制（获取更多数据以便过滤）
             original_limit = self.config.crawler.max_matches
-            self.config.crawler.max_matches = limit
+            self.config.crawler.max_matches = limit * 3  # 获取3倍数据以便过滤
             
             # 调用主要的抓取方法
             matches = await self.scrape_football_matches()
@@ -803,13 +803,29 @@ class FootballScraper:
             # 恢复原始限制
             self.config.crawler.max_matches = original_limit
             
-            # 如果API没有返回数据，使用备用数据源
-            if not matches:
-                logger.warning("BC.Game API未返回数据，尝试使用备用数据源")
-                matches = await self._load_fallback_data(limit)
+            # 过滤掉已过期的比赛
+            current_time = datetime.now(self.malaysia_tz)
+            upcoming_matches = []
             
-            logger.info(f"成功获取 {len(matches)} 场比赛数据")
-            return matches
+            for match in matches:
+                if match.start_time and match.start_time > current_time:
+                    upcoming_matches.append(match)
+                else:
+                    logger.debug(f"过滤掉过期比赛: {match.home_team} vs {match.away_team} - {match.start_time}")
+            
+            # 如果API没有返回数据或所有比赛都过期，使用备用数据源
+            if not upcoming_matches:
+                if not matches:
+                    logger.warning("BC.Game API未返回数据，尝试使用备用数据源")
+                else:
+                    logger.warning(f"BC.Game API返回的 {len(matches)} 场比赛都已过期，尝试使用备用数据源")
+                upcoming_matches = await self._load_fallback_data(limit)
+            
+            # 限制返回数量
+            upcoming_matches = upcoming_matches[:limit]
+            
+            logger.info(f"最终获取 {len(upcoming_matches)} 场即将开始的比赛")
+            return upcoming_matches
             
         except Exception as e:
             logger.error(f"获取即将开始的比赛时出错: {e}")
@@ -845,16 +861,25 @@ class FootballScraper:
             
             # 转换为MatchData格式
             match_data_list = []
-            for match in matches_data[:limit]:
+            current_time = datetime.now(self.malaysia_tz)
+            
+            for match in matches_data:
                 try:
                     match_data = self._convert_to_match_data(match)
                     if match_data:
-                        match_data_list.append(match_data)
+                        # 只添加未过期的比赛
+                        if match_data.start_time and match_data.start_time > current_time:
+                            match_data_list.append(match_data)
+                        else:
+                            logger.debug(f"过滤掉备用数据中的过期比赛: {match_data.home_team} vs {match_data.away_team}")
                 except Exception as e:
                     logger.error(f"转换备用数据时出错: {e}")
                     continue
             
-            logger.info(f"成功转换 {len(match_data_list)} 场比赛数据")
+            # 限制返回数量
+            match_data_list = match_data_list[:limit]
+            
+            logger.info(f"成功转换 {len(match_data_list)} 场即将开始的比赛数据")
             return match_data_list
             
         except Exception as e:
