@@ -408,18 +408,16 @@ class FootballScraper:
                 sport_info = item.get('sportInfo', {})
                 sport_name = sport_info.get('name', '')
                 
-                # 只处理足球赛事
-                if sport_name.lower() != 'soccer':
+                # 只处理足球赛事（包括eSoccer）
+                if sport_name.lower() not in ['soccer', 'esoccer']:
                     continue
                 
-                # 解析比赛数据
-                competitions = item.get('competitions', [])
-                for competition in competitions:
-                    events = competition.get('events', [])
-                    for event in events:
-                        match = self._parse_new_event_format(event, competition)
-                        if match:
-                            matches.append(match)
+                # 解析matchInfo中的比赛数据
+                match_info = item.get('matchInfo', {})
+                if match_info and 'id' in match_info:
+                    match = self._parse_match_info_format(match_info, item)
+                    if match:
+                        matches.append(match)
             
             logger.info(f"从新API格式成功解析 {len(matches)} 场比赛")
             return matches
@@ -474,8 +472,64 @@ class FootballScraper:
             logger.error(f"解析旧API格式时出错: {e}")
             return []
     
+    def _parse_match_info_format(self, match_info: Dict[str, Any], item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """解析matchInfo格式的比赛数据"""
+        try:
+            # 获取基本信息
+            match_id = match_info.get('id', '')
+            if not match_id:
+                return None
+            
+            # 获取比赛时间从desc.scheduled字段
+            desc = match_info.get('desc', {})
+            start_time = desc.get('scheduled')
+            if not start_time:
+                return None
+            
+            # 获取参赛队伍从desc.competitors字段
+            competitors = desc.get('competitors', [])
+            if len(competitors) < 2:
+                return None
+            
+            home_team = competitors[0].get('name', '') if len(competitors) > 0 else ''
+            away_team = competitors[1].get('name', '') if len(competitors) > 1 else ''
+            
+            if not home_team or not away_team:
+                return None
+            
+            # 获取联赛信息
+            tournament_info = item.get('tournamentInfo', {})
+            league_name = tournament_info.get('name', 'Unknown League')
+            
+            # 获取体育项目信息
+            sport_info = item.get('sportInfo', {})
+            sport_name = sport_info.get('name', 'Soccer')
+            
+            # 解析赔率（从markets字段）
+            odds = self._parse_match_info_odds(match_info.get('markets', {}))
+            
+            # 格式化比赛数据
+            match_data = {
+                "match_id": str(match_id),
+                "home_team": home_team,
+                "away_team": away_team,
+                "league": league_name,
+                "category": sport_name,
+                "sport": sport_name,
+                "tournament": league_name,
+                "start_time": start_time,
+                "status": "upcoming",
+                "odds": odds
+            }
+            
+            return match_data
+            
+        except Exception as e:
+            logger.error(f"解析matchInfo格式时出错: {e}")
+            return None
+    
     def _parse_new_event_format(self, event: Dict[str, Any], competition: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """解析新API格式的事件数据"""
+        """解析新API格式的事件数据（保留用于兼容性）"""
         try:
             # 获取基本信息
             event_id = event.get('id', '')
@@ -524,8 +578,42 @@ class FootballScraper:
             logger.error(f"解析新格式事件时出错: {e}")
             return None
     
+    def _parse_match_info_odds(self, markets: Dict[str, Any]) -> Dict[str, float]:
+        """解析matchInfo格式的赔率数据"""
+        odds = {"home_win": 0.0, "draw": 0.0, "away_win": 0.0}
+        
+        try:
+            # markets是字典格式，键为市场ID，值为市场数据
+            for market_id, market_data in markets.items():
+                if isinstance(market_data, dict):
+                    # 查找1X2市场（通常市场ID为'1'或包含'1x2'）
+                    if market_id in ['1', '10', '29'] or '1x2' in market_id.lower():
+                        selections = market_data.get('selections', {})
+                        if isinstance(selections, dict):
+                            # selections也是字典格式
+                            selection_list = list(selections.values())
+                            if len(selection_list) >= 2:
+                                for i, selection in enumerate(selection_list):
+                                    if isinstance(selection, dict):
+                                        odds_value = float(selection.get('odds', 0.0))
+                                        
+                                        if i == 0:  # 主队胜
+                                            odds["home_win"] = odds_value
+                                        elif i == 1 and len(selection_list) == 3:  # 平局（如果有3个选项）
+                                            odds["draw"] = odds_value
+                                        elif (i == 1 and len(selection_list) == 2) or (i == 2 and len(selection_list) == 3):  # 客队胜
+                                            odds["away_win"] = odds_value
+                                
+                                if odds["home_win"] > 0 and odds["away_win"] > 0:
+                                    break
+            
+        except Exception as e:
+            logger.error(f"解析matchInfo赔率时出错: {e}")
+        
+        return odds
+    
     def _parse_new_event_odds(self, markets: List[Dict[str, Any]]) -> Dict[str, float]:
-        """解析新API格式的赔率数据"""
+        """解析新API格式的赔率数据（保留用于兼容性）"""
         odds = {"home_win": 0.0, "draw": 0.0, "away_win": 0.0}
         
         try:
@@ -808,15 +896,23 @@ class FootballScraper:
             # 恢复原始限制
             self.config.crawler.max_matches = original_limit
             
-            # 过滤掉已过期的比赛
+            # 过滤比赛：包含即将开始的比赛和最近开始的比赛（30分钟内）
             current_time = datetime.now(self.malaysia_tz)
             upcoming_matches = []
             
             for match in matches:
-                if match.start_time and match.start_time > current_time:
-                    upcoming_matches.append(match)
+                if match.start_time:
+                    # 计算时间差（分钟）
+                    time_diff = (match.start_time - current_time).total_seconds() / 60
+                    
+                    # 包含未来的比赛和最近30分钟内开始的比赛
+                    if time_diff > -30:  # 比赛开始时间在30分钟前到未来之间
+                        upcoming_matches.append(match)
+                        logger.debug(f"包含比赛: {match.home_team} vs {match.away_team} - {match.start_time} (时间差: {time_diff:.1f}分钟)")
+                    else:
+                        logger.debug(f"过滤掉过期比赛: {match.home_team} vs {match.away_team} - {match.start_time} (时间差: {time_diff:.1f}分钟)")
                 else:
-                    logger.debug(f"过滤掉过期比赛: {match.home_team} vs {match.away_team} - {match.start_time}")
+                    logger.debug(f"过滤掉无时间信息的比赛: {match.home_team} vs {match.away_team}")
             
             # 如果API没有返回数据或所有比赛都过期，使用备用数据源
             if not upcoming_matches:
@@ -872,11 +968,16 @@ class FootballScraper:
                 try:
                     match_data = self._convert_to_match_data(match)
                     if match_data:
-                        # 只添加未过期的比赛
-                        if match_data.start_time and match_data.start_time > current_time:
-                            match_data_list.append(match_data)
+                        # 包含即将开始的比赛和最近开始的比赛（30分钟内）
+                        if match_data.start_time:
+                            time_diff = (match_data.start_time - current_time).total_seconds() / 60
+                            if time_diff > -30:  # 比赛开始时间在30分钟前到未来之间
+                                match_data_list.append(match_data)
+                                logger.debug(f"包含备用数据比赛: {match_data.home_team} vs {match_data.away_team} (时间差: {time_diff:.1f}分钟)")
+                            else:
+                                logger.debug(f"过滤掉备用数据中的过期比赛: {match_data.home_team} vs {match_data.away_team} (时间差: {time_diff:.1f}分钟)")
                         else:
-                            logger.debug(f"过滤掉备用数据中的过期比赛: {match_data.home_team} vs {match_data.away_team}")
+                            logger.debug(f"过滤掉备用数据中无时间信息的比赛: {match_data.home_team} vs {match_data.away_team}")
                 except Exception as e:
                     logger.error(f"转换备用数据时出错: {e}")
                     continue
