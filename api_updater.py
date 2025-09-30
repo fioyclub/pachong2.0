@@ -651,9 +651,61 @@ class AdvancedAPIEndpointUpdater:
                 'total_matches': total_matches
             }
     
-    def discover_new_endpoints(self) -> List[str]:
-        """使用浏览器自动化发现新的API端点"""
-        logger.info("开始自动发现新的API端点...")
+    async def discover_new_endpoints(self) -> List[str]:
+        """使用Playwright优化版本发现新的API端点"""
+        logger.info("开始使用Playwright自动发现新的API端点...")
+        
+        try:
+            # 导入优化后的API发现器
+            from api_discovery import BCGameAPIDiscovery
+            
+            # 创建API发现器实例
+            discovery = BCGameAPIDiscovery(
+                headless=True,
+                browser_type='chromium',
+                max_concurrent=2
+            )
+            
+            # 发现API端点
+            discovered_apis = await discovery.discover_apis([self.sport_url])
+            
+            # 关闭浏览器
+            await discovery.close()
+            
+            # 提取有效的API端点
+            valid_endpoints = []
+            for api_info in discovered_apis:
+                endpoint = api_info.get('url')
+                if endpoint and self._is_potential_api_url(endpoint):
+                    # 使用同步方法测试端点
+                    test_result = self.test_endpoint(endpoint)
+                    if test_result.get('validation_passed', False):
+                        valid_endpoints.append(endpoint)
+                        logger.info(f"发现并验证新端点: {endpoint}")
+                    else:
+                        logger.warning(f"端点验证失败: {endpoint}")
+            
+            logger.info(f"Playwright发现了 {len(valid_endpoints)} 个有效的API端点")
+            return valid_endpoints
+            
+        except ImportError as e:
+            logger.error(f"无法导入api_discovery模块: {e}")
+            return self._fallback_discover_endpoints()
+        except Exception as e:
+            logger.error(f"Playwright API发现失败: {e}")
+            return self._fallback_discover_endpoints()
+    
+    def _fallback_discover_endpoints(self) -> List[str]:
+        """回退到Selenium的发现方法"""
+        logger.info("回退到Selenium发现方法...")
+        
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.options import Options
+            from selenium.webdriver.common.by import By
+        except ImportError:
+            logger.error("Selenium未安装，无法进行API发现")
+            return []
         
         chrome_options = Options()
         chrome_options.add_argument('--headless')
@@ -721,9 +773,9 @@ class AdvancedAPIEndpointUpdater:
             driver.quit()
             
         except Exception as e:
-            logger.error(f"浏览器自动化发现失败: {e}")
+            logger.error(f"Selenium浏览器自动化发现失败: {e}")
         
-        logger.info(f"发现了 {len(discovered_endpoints)} 个潜在的API端点")
+        logger.info(f"Selenium发现了 {len(discovered_endpoints)} 个潜在的API端点")
         return list(discovered_endpoints)
     
     def _is_potential_api_url(self, url: str) -> bool:
@@ -755,7 +807,13 @@ class AdvancedAPIEndpointUpdater:
         
         if not current_endpoints:
             logger.warning("没有配置的API端点，开始自动发现...")
-            new_endpoints = self.discover_new_endpoints()
+            try:
+                import asyncio
+                new_endpoints = asyncio.run(self.discover_new_endpoints())
+            except Exception as e:
+                logger.error(f"异步API发现失败，使用回退方法: {e}")
+                new_endpoints = self._fallback_discover_endpoints()
+            
             if new_endpoints:
                 config['endpoints'] = new_endpoints[:3]  # 保留前3个
                 config['discovery_method'] = 'auto_discovery'
@@ -780,7 +838,12 @@ class AdvancedAPIEndpointUpdater:
         # 如果有端点失效，尝试发现新端点
         if failed_endpoints:
             logger.info(f"检测到 {len(failed_endpoints)} 个失效端点，开始发现新端点...")
-            new_endpoints = self.discover_new_endpoints()
+            try:
+                import asyncio
+                new_endpoints = asyncio.run(self.discover_new_endpoints())
+            except Exception as e:
+                logger.error(f"异步API发现失败，使用回退方法: {e}")
+                new_endpoints = self._fallback_discover_endpoints()
             
             # 测试新发现的端点
             for endpoint in new_endpoints:
