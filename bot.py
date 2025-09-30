@@ -527,7 +527,7 @@ class FootballBot:
             await self.cache_manager.set(
                 cache_key, 
                 [asdict(match) for match in matches],
-                expire_seconds=300  # 5分钟缓存
+                expire_seconds=60  # 1分钟缓存（提高实时性）
             )
         
         return matches
