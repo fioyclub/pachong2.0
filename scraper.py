@@ -732,16 +732,34 @@ class FootballScraper:
                 try:
                     # 处理时间戳格式
                     if isinstance(start_time_str, (int, float)):
-                        start_time = datetime.fromtimestamp(start_time_str / 1000, tz=self.malaysia_tz)
+                        # 检查时间戳是否合理（大于2020年1月1日的时间戳）
+                        min_timestamp = 1577836800  # 2020-01-01 00:00:00 UTC
+                        if start_time_str > min_timestamp * 1000:  # 毫秒级时间戳
+                            start_time = datetime.fromtimestamp(start_time_str / 1000, tz=self.malaysia_tz)
+                        elif start_time_str > min_timestamp:  # 秒级时间戳
+                            start_time = datetime.fromtimestamp(start_time_str, tz=self.malaysia_tz)
+                        else:
+                            # 时间戳不合理，使用当前时间加2小时
+                            logger.warning(f"时间戳不合理: {start_time_str}，使用默认时间")
+                            start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
                     else:
                         # 处理ISO格式时间
-                        start_time = datetime.fromisoformat(str(start_time_str).replace('Z', '+00:00'))
-                        start_time = start_time.astimezone(self.malaysia_tz)
+                        time_str = str(start_time_str).replace('Z', '+00:00')
+                        if 'T' in time_str:
+                            start_time = datetime.fromisoformat(time_str)
+                            start_time = start_time.astimezone(self.malaysia_tz)
+                        else:
+                            # 尝试其他时间格式
+                            logger.warning(f"未知时间格式: {start_time_str}，使用默认时间")
+                            start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
                 except Exception as e:
-                    logger.warning(f"解析时间失败: {e}，使用默认时间")
+                    logger.warning(f"解析时间失败: {e}，原始数据: {start_time_str}，使用默认时间")
                     start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
             else:
                 start_time = datetime.now(self.malaysia_tz) + timedelta(hours=2)
+            
+            # 记录时间解析结果用于调试
+            logger.debug(f"比赛 {match.get('match_id', 'unknown')} 时间解析: 原始={start_time_str}, 解析后={start_time}")
             
             # 创建MatchData对象
             match_data = MatchData(
